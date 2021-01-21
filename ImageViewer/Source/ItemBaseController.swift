@@ -171,7 +171,7 @@ open class ItemBaseController<T: UIView>: UIViewController, ItemController, UIGe
 
             swipeToDismissRecognizer.addTarget(self, action: #selector(scrollViewDidSwipeToDismiss))
             swipeToDismissRecognizer.delegate = self
-            view.addGestureRecognizer(swipeToDismissRecognizer)
+            scrollView.addGestureRecognizer(swipeToDismissRecognizer) // Note:必须加在图片容器上，否则长图下拉不能触发
             swipeToDismissRecognizer.require(toFail: doubleTapRecognizer)
         }
     }
@@ -243,12 +243,17 @@ open class ItemBaseController<T: UIView>: UIViewController, ItemController, UIGe
 
         if let size = itemView.image?.size , size != CGSize.zero {
 
-            let aspectFitItemSize = aspectFitSize(forContentOfSize: size, inBounds: self.scrollView.bounds.size)
-
-            itemView.bounds.size = aspectFitItemSize
-            scrollView.contentSize = itemView.bounds.size
-
-            itemView.center = scrollView.boundsCenter
+//            let aspectFitItemSize = aspectFitSize(forContentOfSize: size, inBounds: self.scrollView.bounds.size)
+//
+//            itemView.bounds.size = aspectFitItemSize
+//            scrollView.contentSize = itemView.bounds.size
+//
+//            itemView.center = scrollView.boundsCenter
+            
+            let size = computeImageLayoutSize(for: itemView.image, in: scrollView)
+            let origin = computeImageLayoutOrigin(for: size, in: scrollView)
+            itemView.frame = CGRect(origin: origin, size: size)
+            scrollView.setZoomScale(1.0, animated: false)
         }
     }
 
@@ -261,7 +266,8 @@ open class ItemBaseController<T: UIView>: UIViewController, ItemController, UIGe
 
     public func scrollViewDidZoom(_ scrollView: UIScrollView) {
 
-        itemView.center = contentCenter(forBoundingSize: scrollView.bounds.size, contentSize: scrollView.contentSize)
+        //itemView.center = contentCenter(forBoundingSize: scrollView.bounds.size, contentSize: scrollView.contentSize)
+        itemView.center = computeImageLayoutCenter(in: scrollView)
     }
 
     @objc func scrollViewDidSingleTap() {
@@ -316,7 +322,7 @@ open class ItemBaseController<T: UIView>: UIViewController, ItemController, UIGe
         case .changed:
             self.handleSwipeToDismissInProgress(swipingToDismissInProgress, forTouchPoint: currentTouchPoint)
 
-        case .ended:
+        case .ended, .cancelled:
             self.handleSwipeToDismissEnded(swipingToDismissInProgress, finalVelocity: currentVelocity, finalTouchPoint: currentTouchPoint)
 
         default:
@@ -591,6 +597,19 @@ open class ItemBaseController<T: UIView>: UIViewController, ItemController, UIGe
         ///A bit of paranoia
         guard velocity.orientation != .none else { return false }
 
+        // 向上滑动时，不响应手势
+        if velocity.y < 0 {
+            return false
+        }
+        // 横向滑动时，不响应pan手势
+        if abs(Int(velocity.x)) > Int(velocity.y) {
+            return false
+        }
+        // 向下滑动，如果图片顶部超出可视区域，不响应手势
+        if scrollView.contentOffset.y > 0 {
+            return false
+        }
+        
         /// We continue if the swipe is horizontal, otherwise it's Vertical and it is swipe to dismiss.
         guard velocity.orientation == .horizontal else { return swipeToDismissMode.contains(.vertical) }
 
@@ -633,4 +652,52 @@ open class ItemBaseController<T: UIView>: UIViewController, ItemController, UIGe
     public func closeDecorationViews(_ duration: TimeInterval) {
         // stub
     }
+    
+    private func computeImageLayoutSize(for image: UIImage?, in scrollView: UIScrollView) -> CGSize {
+        guard let imageSize = image?.size, imageSize.width > 0 && imageSize.height > 0 else {
+            return .zero
+        }
+        var width: CGFloat
+        var height: CGFloat
+        let containerSize = scrollView.bounds.size
+        
+        if containerSize.width < containerSize.height {
+            width = containerSize.width
+            height = imageSize.height / imageSize.width * width
+        } else {
+            height = containerSize.height
+            width = imageSize.width / imageSize.height * height
+            if width > containerSize.width {
+                width = containerSize.width
+                height = imageSize.height / imageSize.width * width
+            }
+        }
+        
+        return CGSize(width: width, height: height)
+    }
+    
+    private func computeImageLayoutOrigin(for imageSize: CGSize, in scrollView: UIScrollView) -> CGPoint {
+        let containerSize = scrollView.bounds.size
+        var y = (containerSize.height - imageSize.height) * 0.5
+        y = max(0, y)
+        var x = (containerSize.width - imageSize.width) * 0.5
+        x = max(0, x)
+        return CGPoint(x: x, y: y)
+    }
+    
+    private func computeImageLayoutCenter(in scrollView: UIScrollView) -> CGPoint {
+        var x = scrollView.contentSize.width * 0.5
+        var y = scrollView.contentSize.height * 0.5
+        
+        let offsetX = (self.view.bounds.width - scrollView.contentSize.width) * 0.5
+        if offsetX > 0 {
+            x += offsetX
+        }
+        let offsetY = (self.view.bounds.height - scrollView.contentSize.height) * 0.5
+        if offsetY > 0 {
+            y += offsetY
+        }
+        return CGPoint(x: x, y: y)
+    }
+    
 }
